@@ -1,0 +1,185 @@
+//+------------------------------------------------------------------+
+//|                                               Senior Project.mq4 |
+//|                                                 Ryan N. Donnelly |
+//|                                                                  |
+//+------------------------------------------------------------------+
+#property copyright "Ryan N. Donnelly"
+#property link      ""
+#property version   "1.00"
+#property strict
+//--- input parameters
+
+double StopLoss = 1200; //->100
+double TakeProfit = 5000;
+
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+   
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+  if(OrdersTotal()>=1){
+      BreakEven();
+      TrailStops(); 
+  }    
+  if(IsNewCandle())
+      OpenTrade();
+
+   
+  }
+
+
+//+------------------------------------------------------------------+
+//| Trail Stops                                                      |
+//+------------------------------------------------------------------+
+   void TrailStops(){
+   int trailingStop = 850;
+   int whenToTrail = 600; 
+   //Buy section
+      for(int b=OrdersTotal()-1;b>=0;b--)
+   	      {
+            if(OrderSelect(b,SELECT_BY_POS,MODE_TRADES))
+               if(OrderSymbol()==Symbol())
+                  if(OrderType()==OP_BUY)
+                     if(Bid-OrderOpenPrice()>whenToTrail*Point()) 
+                        if(OrderStopLoss()<Bid-Point()*trailingStop)
+                          OrderModify(OrderTicket(),OrderOpenPrice(),Bid-(trailingStop*Point()),OrderTakeProfit(),0,CLR_NONE);
+            }
+   //Sell section      
+      for(int s=OrdersTotal()-1;s>=0;s--)
+	      {
+         if(OrderSelect(s,SELECT_BY_POS,MODE_TRADES))
+             if(OrderSymbol()==Symbol())
+               if(OrderType()==OP_SELL)
+                 /*if(UseCandleTrail)
+                    {   if(IsNewCandle())
+                           if(OrderStopLoss()>High[sellStopCandle]+PadAmount*pips)
+                              OrderModify(OrderTicket(),OrderOpenPrice(),High[sellStopCandle]+PadAmount*pips,OrderTakeProfit(),0,CLR_NONE);
+                    }*/
+                 /*else*/   if(OrderOpenPrice()-Ask>whenToTrail*Point())
+                              if(OrderStopLoss()>Ask+trailingStop*Point())
+                                 OrderModify(OrderTicket(),OrderOpenPrice(),Ask+(trailingStop*Point()),OrderTakeProfit(),0,CLR_NONE);
+      }
+
+   }   
+   
+      
+      
+
+//+-----------------------------------------------------------------+
+
+void OpenTrade(){
+//Define the indicators we will use for our trading strategy
+                          
+       double   EightWMA = iMA(NULL, 1440, 8, 0, MODE_LWMA, PRICE_CLOSE, 1); 
+                         //iMA(Symbol, Timeframe(1440=Daily Chart), period, MA shift on chart, type of MA, applied price, shift) 
+       double   TenWMA_Open = iMA(NULL, 1440, 10, 1, MODE_LWMA, PRICE_OPEN, 1);
+       double   osma = iOsMA(NULL, 1440, 12, 26, 5, PRICE_CLOSE, 1);          
+                     //iOsMA(Symbol, Timeframe, fast ema, slow ema, signal period, applied price, shift)
+
+
+     if (OrdersTotal() > 0) {    //if we already have an open order, do not open another order.
+         //TrailStops();           //Adjust our stoploss Commented out for now
+         return;                 
+      }
+      
+      //Buy Order (We think the price will go up)
+      /*Rules:
+           Open A Buy Order If:
+            1.) Low > TenWMA_Low 
+            2.) EightWMA > TenWMA_Open
+            3.) osma > 0 
+            4.) Close <= 60 pips from EightWMA
+      */ 
+      if (Low[1] > TenWMA_Open && EightWMA > TenWMA_Open && osma > 0 && Close[1] <= 600 + EightWMA){  //changed to 600 from 60
+//        Low[1] = low of previous bar                                   Close[1] = Close of previous bar
+         OrderSend(Symbol(), OP_BUY, .1, Ask, 3, Ask - (StopLoss * Point()), Ask + (TakeProfit * Point()), NULL, 0,Green); //removed experation time
+         if(OrdersTotal()<1){
+            Print("OrderSend failed with error #",GetLastError());
+         }
+         else
+            Print("OrderSend placed successfully");
+       }
+         
+         
+       //Sell Order (We think the price will go down
+       /*Rules:
+            Open a sell order if:
+               1.) High < TenWMA_Low
+               2.) EightWMA < TenWMA
+               3.) osma < 0
+               4.) Close <= 60 - EightWMA
+       */
+      if(High[1] < TenWMA_Open && EightWMA < TenWMA_Open && osma < 0 && Close[1] <= 600 - EightWMA){     ////changed to 600 from 60 bc we are quoted out to 5 decimals
+         OrderSend(Symbol(), OP_SELL, .1, Bid, 3, Bid + (StopLoss * Point()), Bid-(TakeProfit * Point()), NULL, 0, Red);
+         if(OrdersTotal()<1){
+            Print("OrderSend failed with error #",GetLastError());
+         }
+         else
+            Print("OrderSend placed successfully");
+      }
+}
+
+//+------------------------------------------------------------------+
+//| New Candle                                                       |
+//+------------------------------------------------------------------+
+
+bool IsNewCandle()
+{
+   static int BarsOnChart=0;
+	if (Bars == BarsOnChart)
+	return (false);
+	BarsOnChart = Bars;        
+	return(true);
+}
+
+//+------------------------------------------------------------------+
+//| Break Even                                                       |
+//+------------------------------------------------------------------+
+
+
+void BreakEven(){
+   
+   double WhenMoveToBreakEven = 800; 
+   double LockedInPips = 500;
+   
+   
+   for(int i=OrdersTotal()-1; i >= 0; i--)
+	{
+   	if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+          if(OrderSymbol()==Symbol())
+            if(OrderType()==OP_BUY)
+               if(Bid-OrderOpenPrice()>WhenMoveToBreakEven*Point())
+                  if(OrderOpenPrice()>OrderStopLoss())
+                     OrderModify(OrderTicket(),OrderOpenPrice(),OrderOpenPrice()+(LockedInPips*Point()),OrderTakeProfit(),0,CLR_NONE);
+   }
+   for (int j=OrdersTotal()-1; j >= 0; j--)
+	     {
+         if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+            if(OrderSymbol()==Symbol())
+              if(OrderType()==OP_SELL)
+               if(OrderOpenPrice()-Ask>WhenMoveToBreakEven*Point())
+                  if(OrderOpenPrice()<OrderStopLoss())    
+                     OrderModify(OrderTicket(),OrderOpenPrice(),OrderOpenPrice()-(LockedInPips*Point()),OrderTakeProfit(),0,CLR_NONE);
+        }
+         
+
+}
